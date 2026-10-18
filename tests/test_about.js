@@ -1,0 +1,33 @@
+// About-page state and diagnostic-copy behavior without browser dependencies.
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const vm=require('node:vm');
+const releaseVersion=fs.readFileSync('pulse/__init__.py','utf8').match(/__version__\s*=\s*"([^"]+)"/)[1];
+const nodes=new Map();
+const $=id=>{if(!nodes.has(id))nodes.set(id,{textContent:'',dataset:{}});return nodes.get(id)};
+let response, copied;
+const context=vm.createContext({$,set:(id,text)=>$(id).textContent=text,navigator:{clipboard:{writeText:async text=>{copied=text}}},fetch:async()=>response});
+vm.runInContext(fs.readFileSync('static/about-ui.js','utf8'),context);
+(async()=>{
+ response={ok:true,json:async()=>({version:releaseVersion,system:'Windows',python:'3.9',architecture:'AMD64',database:'C:/Users/Example/Pulse/pulse.sqlite3',recording:true})};
+ await vm.runInContext('loadAbout()',context);
+ assert.equal($('#about-version').textContent,'Version '+releaseVersion);
+ assert.equal($('#about-local-status').dataset.state,'active');
+ assert.equal($('#about-copy').disabled,false);
+ await $('#about-copy').onclick();
+ assert.ok(copied.includes('Database: C:/Users/Example/Pulse/pulse.sqlite3'));
+ assert.ok(copied.includes('\nSystem: Windows'));
+ response={ok:true,json:async()=>({version:releaseVersion,recording:false,recordingError:'Disk full'})};
+ await vm.runInContext('loadAbout()',context);
+ assert.equal($('#about-local-status').dataset.state,'error');
+ assert.ok($('#about-status').textContent.includes('Disk full'));
+ context.navigator.clipboard=null;
+ await $('#about-copy').onclick();
+ assert.ok($('#about-copy-status').textContent.includes('Clipboard access is unavailable'));
+ response={ok:false};
+ await vm.runInContext('loadAbout()',context);
+ assert.equal($('#about-copy').disabled,true);
+ assert.equal($('#about-local-status').dataset.state,'idle');
+ assert.equal($('#about-version').textContent,'Unavailable');
+ console.log('About version, recording states, diagnostics copy, and connection failure checks passed.');
+})().catch(error=>{console.error(error);process.exitCode=1});

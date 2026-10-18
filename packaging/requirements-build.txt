@@ -1,0 +1,2 @@
+# Versions used for the verified Windows release.
+-r requirements-build.lock.txt

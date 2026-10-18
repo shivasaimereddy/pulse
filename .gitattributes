@@ -1,0 +1,7 @@
+# Consistent source files on Windows and Ubuntu; native Windows launchers use CRLF.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+*.png binary
+*.ico binary

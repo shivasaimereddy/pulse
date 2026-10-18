@@ -1,0 +1,44 @@
+/* Base clarity rules avoid stacked projections. Final display angle and type scale are in polish.css. */
+.hero-stage{perspective:none}
+.hero-window{transform:none}
+.hero-stage:before{content:"";position:absolute;left:35px;right:-150px;top:24px;bottom:54px;border:1px solid #789bd51a;border-radius:16px;background:linear-gradient(130deg,#29446e0d,transparent 65%);transform:rotate(-2deg);pointer-events:none;z-index:-1}
+.signal-card{backdrop-filter:none;background:linear-gradient(130deg,#1e2b3e,#121b29)}
+.signal-card div>span{font-size:8px;letter-spacing:1.1px}
+.signal-card strong{font-size:12px;line-height:1.5}
+:root[data-theme="light"] .signal-card{background:linear-gradient(130deg,#fff,#edf4fd)}
+@media(max-width:850px){.hero-window{transform:none}.hero-stage:before{right:4px;left:26px;top:30px;bottom:60px}}
+@media(max-width:540px){.signal-card div>span{font-size:7px;letter-spacing:.7px}.signal-card strong{font-size:11px}.hero-stage:before{left:8px;right:4px;top:22px;bottom:53px}}
+
+.checksum-details{scroll-margin-top:105px}
+.checksum-guide{padding-top:15px}
+.checksum-guide>p{font-size:12px;line-height:1.8;color:#94abc8;margin:0 0 16px}
+.checksum-guide ol{margin:0 0 20px;padding-left:18px;display:grid;gap:13px;font-size:12px;line-height:1.8;color:#9cb1cc}
+.checksum-guide li{padding-left:5px}
+.checksum-guide strong{color:#c5daf4;font-weight:500}
+.checksum-guide kbd{font:inherit;color:#c4dbf6;background:#6a9adc10;padding:1px 5px;border:1px solid #8cace526;border-radius:4px;white-space:nowrap}
+.checksum-field{display:block;font-size:11px;color:#9bb1ce;margin:18px 0 7px}
+.checksum-select,.checksum-input{width:100%;min-width:0;border:1px solid #81a9dc35;border-radius:7px;background:#0d1624;color:#bed4ef;font:inherit;font-size:12px;padding:11px}
+.checksum-input{font-family:ui-monospace,Consolas,monospace;font-size:11px}
+.checksum-input:focus,.checksum-select:focus{outline:2px solid #8cbcff;outline-offset:2px}
+.checksum-details .checksum-code{display:block;margin:8px 0 0;user-select:text}
+.checksum-details .checksum-command{white-space:pre-wrap;font-size:11px}
+.checksum-details .checksum-action{color:#a0c8ff;font-size:11px;padding:8px 0;border:0;background:none}
+.checksum-actions{display:flex;gap:18px;flex-wrap:wrap}
+.checksum-details .checksum-compare{display:inline-flex;align-items:center;justify-content:center;margin-top:11px;padding:10px 16px;background:#263f60;color:#cce2ff;border:1px solid #517bad50;border-radius:7px;font-size:12px}
+.checksum-result{font-size:12px;line-height:1.8;margin:12px 0;color:#9cb4d3}
+.checksum-result[data-state="match"]{color:#9cddc7}
+.checksum-result[data-state="mismatch"],.checksum-result[data-state="invalid"]{color:#efc09e}
+.checksum-guide .checksum-local-note{font-size:10px;color:#738eaf;margin-top:15px}
+.checksum-file-link{font-size:11px;color:#a0c8ff;text-decoration:underline;text-underline-offset:3px}
+.checksum-copy-status{display:block;font-size:11px;color:#91b9ac;line-height:1.7}
+:root[data-theme="light"] .checksum-guide>p,:root[data-theme="light"] .checksum-guide ol,:root[data-theme="light"] .checksum-field{color:#536e90}
+:root[data-theme="light"] .checksum-guide strong{color:#35577f}
+:root[data-theme="light"] .checksum-guide kbd{color:#446990;background:#e8f0fb;border-color:#c8d9ee}
+:root[data-theme="light"] .checksum-select,:root[data-theme="light"] .checksum-input{background:#fff;color:#3d618e;border-color:#bfd2eb}
+:root[data-theme="light"] .checksum-details .checksum-action,:root[data-theme="light"] .checksum-file-link{color:#3f74b6}
+:root[data-theme="light"] .checksum-details .checksum-compare{color:#315d94;background:#dfeafb;border-color:#b7ceeb}
+:root[data-theme="light"] .checksum-result{color:#5c789a}
+:root[data-theme="light"] .checksum-result[data-state="match"]{color:#287763}
+:root[data-theme="light"] .checksum-result[data-state="mismatch"],:root[data-theme="light"] .checksum-result[data-state="invalid"]{color:#a6612f}
+:root[data-theme="light"] .checksum-guide .checksum-local-note{color:#647d9c}
+:root[data-theme="light"] .checksum-copy-status{color:#448472}
