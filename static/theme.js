@@ -11,15 +11,16 @@
     document.documentElement.style.colorScheme=resolved;
     const control=document.querySelector('#theme-select');
     if(control)control.value=preference;
+    const settings=document.querySelector('#settings-theme');if(settings)settings.value=preference;
   }
   function bind() {
-    const control=document.querySelector('#theme-select');
-    if(!control)return;
+    document.querySelectorAll('#theme-select,#settings-theme').forEach(control=>{
     control.value=preference;
     control.addEventListener('change',()=>{
       preference=valid(control.value);
       try { localStorage.setItem(key,preference); } catch {}
       apply();
+    });
     });
   }
   apply();

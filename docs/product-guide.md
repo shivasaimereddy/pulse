@@ -113,3 +113,61 @@ The background history writer persists minute CPU/memory summaries and compact c
 App averages are across all event samples, including zero while absent or outside the retained candidate set. Repeated-app counts merge overlapping CPU and memory periods so the same busy moment is not counted twice. The event CPU and memory duration cards may overlap; they are not total wall-clock slow time. Recording starts with this release; older hourly app history cannot be used to reconstruct events. Updates are batched with the history transaction, and detector state advances only after a successful commit.
 
 Review app opens matching current processes and explains that historical processes may have exited. It does not automatically terminate anything. Windows settings links are suggestions for review. Performance Insights refreshes every 15 seconds while visible; the period choice is remembered per browser tab.
+
+
+## Local workspace improvements
+
+### Database selection
+
+Source launches support an explicit database path, the Windows AppData database, or a native file chooser. An explicit launch option takes precedence over the location saved in Settings. Existing databases open in place and are not copied or replaced. The executable uses the selected location on subsequent launches.
+
+### Overview
+
+Overview distinguishes sustained resource usage from brief spikes. Processor usage of at least 75% or memory usage of at least 80% must persist for a minute before being treated as sustained. These observations are not a hardware health score or proof of a slowdown. Paused, disconnected and delayed readings are identified.
+
+Resource leaders group related processes and rank them by CPU or memory. System essentials shows battery, available memory, network traffic and disk read/write rates. Network traffic is not an internet speed test, and disk throughput is not disk utilization or drive health. Available memory includes reclaimable cache.
+
+### Storage exploration
+
+Successful scans are retained per location. Switching folders restores their saved results. Folder contents show immediate children with descendant sizes included; Largest files shows individual files found beneath the scanned location. These views overlap and their sizes must not be added together.
+
+Saved indexes allow browsing without rescanning. A refresh explicitly scans again; incomplete or unreadable coverage is disclosed. The space map sizes tiles by logical file size. Small items may be grouped, and active filters and displayed-result limits are identified. Logical size can differ from occupied or reclaimable disk space.
+
+Open Understand your space to explore drives and retained folder snapshots. Drive capacity is distinct from scanned folder coverage. Saved folders may overlap; Pulse never adds their totals together to estimate drive usage. Whole-drive scanning is explicit and can be stopped. Windows volume usage already includes the space occupied by WSL virtual disks.
+
+### Activity timeline
+
+The timeline combines sustained performance periods, retained storage comparisons and gaps in recording. Filter by type and time range, then expand an event to review its evidence. App observations during a busy period do not prove an app caused the slowdown.
+
+Storage events link to the exact retained comparison. A recording gap represents at least two missing minute buckets after recording began. Gaps may reflect sleep, downtime or a recording problem; Pulse does not infer the cause. Earlier history cannot reconstruct missing app attribution.
+
+### Tooltips and chart readings
+
+Help controls explain measurements and limitations. Graphs support pointer, touch and keyboard exploration with exact timestamps and values. Gaps have no invented readings. Tooltips stay within the viewport and work inside dialogs.
+
+### Settings
+
+Appearance, new-session screen and display refresh belong to the browser. Refreshing restores the active screen and scroll position. The optional compact sidebar preference is remembered. Recording belongs to the selected database and is independent of display refresh or pause.
+
+Turning off Save performance history stops persistence while keeping live monitoring and storage scans available. Pending samples are saved before pausing. Retention is bounded: seven days of minute detail, one year of hourly trends, thirty days of app summaries and busy periods, and twenty recent storage snapshots. Expired records free database pages for reuse; deletion does not necessarily shrink the file.
+
+Performance history and storage snapshots can be cleared separately after confirmation. Actual files are not deleted. Clearing performance history while recording is enabled starts a new record immediately. Storage history cannot be cleared during a scan.
+
+### Change the history database in Settings
+
+Choose Settings > Change database location. Browse for an existing Pulse database or select a new filename, review the location, and choose Use this database. Use default location selects the Windows AppData location. No terminal commands are needed.
+
+Pulse saves queued readings before switching and keeps the previous file intact. An existing database opens in place; a new file starts empty. Databases are not merged. Switching is blocked during storage scans. The location is remembered for future launches, and open dashboard tabs reload to avoid mixing history from different databases.
+
+Existing files are inspected read-only for a compatible Pulse schema before opening. Unrelated files and databases from a newer version are rejected. If saving the current history or recording the location preference fails, the active database stays selected.
+
+Performance history focuses on saved readings and app activity. Retention, database size and recording behavior are described in Settings. Closing the browser leaves Pulse running; quitting Pulse stops recording. Pausing live updates only freezes the display.
+
+
+### Focused page layouts
+
+Settings separates Appearance & display, Recording, and Manage data into keyboard-accessible tabs. The selected section is restored within the browser session. Database controls remain available alongside the selected section. About contains the app version, local recording state and expandable installation details; retention controls remain in Settings.
+
+On wide screens, Storage places the space map beside the saved contents list. Narrow screens stack them. Largest files uses the full results width. The saved contents list keeps its scroll position across refresh and returns to the top for a new folder or result view. Folder navigation continues to use retained indexes without automatically scanning.
+
+Measurement explanations on Processes, Insights and Storage changes expand on demand. Summary labels and empty states distinguish retained data, incomplete coverage and missing observations without inventing measurements.

@@ -3,15 +3,16 @@ let showPartialScan=false;
 let activeFolderScan=null,selectedStoragePath=null,savedScansLoaded=false,savedScanStamp=null;
 const folderScanCache=new Map();
 const scanKey=path=>(path||'').replace(/\\/g,'/').replace(/\/+$/,'').toLowerCase();
-let folderLoading=false,folderResultKey=null;
+let folderLoading=false,folderResultKey=null,restoredStorageListScroll=null;
 function saveStorageView(){
- try{sessionStorage.setItem('pulse.storageView',JSON.stringify({path:selectedStoragePath,source:storage?.source||null,mode:resultMode,tab:storageTab,search:$('#storage-search').value,minimum:$('#storage-minimum').value,sort:$('#storage-sort').value}));}catch{}
+ try{sessionStorage.setItem('pulse.storageView',JSON.stringify({path:selectedStoragePath,source:storage?.source||null,mode:resultMode,tab:storageTab,search:$('#storage-search').value,minimum:$('#storage-minimum').value,sort:$('#storage-sort').value,listScroll:$('#storage-list').scrollTop||0}));}catch{}
 }
 function restoreStorageView(){
  try{
   const saved=JSON.parse(sessionStorage.getItem('pulse.storageView')||'null');
   if(!saved||typeof saved!=='object')return;
   selectedStoragePath=typeof saved.path==='string'?saved.path:null;
+  if(Number.isFinite(saved.listScroll))restoredStorageListScroll={path:selectedStoragePath,mode:saved.mode,top:Math.max(0,saved.listScroll)};
   restoredStorageSource=typeof saved.source==='string'?saved.source:null;
   resultMode=saved.mode==='files'?'files':'folders';storageTab=saved.tab==='wsl'?'wsl':'windows';
   $('#storage-search').value=typeof saved.search==='string'?saved.search:'';
@@ -36,7 +37,7 @@ async function loadSavedScans(){
  // Match the bounded database rather than keeping every explored location in memory.
  const retained=new Set(payload.scans.map(item=>scanKey(item.path)));
  for(const key of folderScanCache.keys())if(!retained.has(key))folderScanCache.delete(key);
- savedScansLoaded=true;
+ savedScansLoaded=true;if(typeof renderScanLibrary==='function')renderScanLibrary();
  set('#saved-scan-note',payload.available?'Last successful scans for up to 20 locations are saved on this laptop, including after a restart.':'Scan history is unavailable.');
  $('#saved-scan-locations').innerHTML='<option value="">Recent scans...</option>'+payload.scans.map(item=>`<option value="${escapeHtml(item.path)}">${escapeHtml(item.path)} · ${new Date(item.updated*1000).toLocaleString()}</option>`).join('');
 }
@@ -56,6 +57,7 @@ async function showFolderScan(path, source=null){
  const direct=folderScanCache.get(scanKey(path));
  const parent=direct?.indexVersion===2&&!source?direct:source?folderScanCache.get(scanKey(source)):[...folderScanCache.values()].filter(scan=>scan.browsable&&scanKey(path).startsWith(scanKey(scan.path)+'/')).sort((a,b)=>b.updated-a.updated)[0];
  const key=parent?browseResultKey(parent.path,path):null;
+ if(!same||folderResultKey!==key)$('#storage-list').scrollTop=0;
  if(same&&key&&folderResultKey===key&&storage.filteredCount!==undefined){folderLoading=false;renderFolderResults();saveStorageView();return;}
  folderLoading=false;
  if(!same||(!parent&&!direct)){storage=activeFolderScan?.running&&scanKey(activeFolderScan.path)===scanKey(path)?activeFolderScan:(!source&&direct)||emptyFolderScan(path);folderResultKey=null;}
@@ -108,13 +110,13 @@ async function startFolderScan(path){
 function renderStorageDrives(){
  if(!data)return;
  const total=data.disks.reduce((s,d)=>s+d.total,0),free=data.disks.reduce((s,d)=>s+d.free,0);
- set('#storage-used',bytes(total-free));set('#storage-total',`used of ${bytes(total)} across Windows drives`);set('#storage-free',bytes(free));
+ set('#storage-used',bytes(total-free));set('#storage-total',`used of ${bytes(total)}`);set('#storage-free',bytes(free));
  $('#capacity-ring').style.setProperty('--used',`${total?(total-free)/total*100:0}%`);
  $('#drives').innerHTML=data.disks.map(d=>`<article class="card drive-card"><div class="drive-card-top"><span class="tile blue">${icon('storage')}</span><div><h3>${escapeHtml(d.path)}</h3><small>${escapeHtml(d.type)} · Windows volume</small></div><span class="pill ${d.percent>=85?'warn':''}">${d.percent>=85?'Getting full':'Available'}</span></div><div class="drive-card-space"><strong>${bytes(d.free)}</strong><span>free of ${bytes(d.total)}</span></div><div class="progress"><i style="width:${d.percent}%;background:${d.percent>=85?'#e2ac5b':'#7daee4'}"></i></div><div class="drive-card-bottom"><span>${d.percent.toFixed(0)}% used</span><button class="link" data-scan-path="${escapeHtml(d.path)}">Explore drive →</button></div></article>`).join('');
 }
 function renderFolderResults(){
  if(!storage)return;const s=storage,running=!!activeFolderScan?.running;
- followScanLocation(s.path);
+ followScanLocation(s.path);if(typeof renderStorageFindings==='function')renderStorageFindings(s);
  const status=folderLoading?'Loading saved results...':s.indexMissing?'This folder was scanned, but its details were not retained in the older snapshot. Refresh the original scan once to enable saved browsing.':s.failure?`Scan could not finish: ${s.failure}`:s.saving?'Saving folder index...':s.running?'Scanning... results appear as folders finish.':s.cancelled?'Scan stopped. These are partial results. The last successful scan is still saved.':s.updated?(s.source?'From saved scan · ':'Saved scan · ')+new Date(s.updated*1000).toLocaleString():'No saved scan for this location. Choose Scan location to start.';
  set('#scan-status',`${status}${s.errors?` ${s.errors.toLocaleString()} inaccessible entries skipped.`:''}`);
  $('#clear-storage-history').disabled=running||!folderScanCache.size;$('#scan').disabled=running;$('#scan-custom').disabled=running;$('#scan-scope').disabled=running;$('#saved-scan-locations').disabled=running;$('#cancel-scan').hidden=!running;$('#cancel-scan').disabled=!!s.saving;
@@ -134,11 +136,12 @@ function renderFolderResults(){
  $('#export-storage').disabled=!s.updated||s.running;
  const largest=(s.items||[]).slice(0,5),rest=Math.max(0,scanned-largest.reduce((sum,x)=>sum+x.size,0));
  const breakdown=[...largest,...(rest?[{name:'Other contents',size:rest}]:[])];
- $('#folder-breakdown').innerHTML=scanned?`<div class="folder-segments">${breakdown.map((item,i)=>`<span style="width:${item.size/scanned*100}%;background:${folderColors[i]}" title="${escapeHtml(item.name)} · ${bytes(item.size)}"></span>`).join('')}</div><div class="folder-segment-legend">${breakdown.map((item,i)=>`<span><i style="background:${folderColors[i]}"></i>${escapeHtml(item.name)}</span>`).join('')}</div>`:'';
+ $('#folder-breakdown').hidden=true;$('#folder-breakdown').innerHTML=scanned?`<div class="folder-segments">${breakdown.map((item,i)=>`<span style="width:${item.size/scanned*100}%;background:${folderColors[i]}" title="${escapeHtml(item.name)} · ${bytes(item.size)}"></span>`).join('')}</div><div class="folder-segment-legend">${breakdown.map((item,i)=>`<span><i style="background:${folderColors[i]}"></i>${escapeHtml(item.name)}</span>`).join('')}</div>`:'';
  let rows=[...(resultMode==='files'?s.files||[]:s.items||[])];
  const query=$('#storage-search').value.toLowerCase(),minimum=Number($('#storage-minimum').value),order=$('#storage-sort').value;
  if(resultMode==='files'||s.indexVersion!==2||s.filteredCount===undefined)rows=rows.filter(item=>item.name.toLowerCase().includes(query)&&item.size>=minimum);
  if(resultMode==='files'||s.indexVersion!==2||s.filteredCount===undefined)rows.sort(order==='name'?(a,b)=>a.name.localeCompare(b.name):order==='modified'?(a,b)=>(b.modified||0)-(a.modified||0):order==='oldest'?(a,b)=>(a.modified||0)-(b.modified||0):(a,b)=>b.size-a.size);
+ if(typeof renderStorageMap==='function')renderStorageMap(rows,s);
  const max=Math.max(1,...rows.map(item=>item.size));
  $('#storage-list').innerHTML=rows.map(item=>{
   const file=item.kind==='file',unknown=!item.kind;
@@ -146,6 +149,7 @@ function renderFolderResults(){
  }).join('')||(folderLoading?'<div class="storage-empty" role="status">Loading saved results...</div>':`<div class="storage-empty"><span class="tile blue">${icon('storage')}</span><h3>${s.indexMissing?'Saved details need a refresh.':s.updated||s.running?'Nothing matches this view.':'Explore this location.'}</h3><p>${s.indexMissing?'Refresh the original scan once. Files were measured, but this folder was omitted by the previous index limit.':s.updated||s.running?'Try resetting filters, or switch between folders and largest files.':'Run a scan to discover what is taking up space. Switching folders will bring back their saved results.'}</p></div>`);
  $('#storage-load-more').hidden=resultMode!=='folders'||s.nextOffset==null;$('#storage-load-more').disabled=folderLoading||loadingMoreFolders;
  $('#storage-list').setAttribute('aria-busy',String(folderLoading));
+ if(restoredStorageListScroll&&s.updated&&!folderLoading&&scanKey(s.path)===scanKey(restoredStorageListScroll.path)&&resultMode===restoredStorageListScroll.mode){$('#storage-list').scrollTop=restoredStorageListScroll.top;restoredStorageListScroll=null;}
  set('#storage-result-count',`${rows.length} results${resultMode==='files'?' · Top 50 largest files found in this scan':s.filteredCount!==undefined?` · ${rows.length} of ${s.filteredCount} matching contents`:s.totalItems>500?' · Showing the 500 largest immediate children':''}. ${s.treeLimited?'Older snapshot has incomplete browsing details. Refresh its original scan once. ':!s.browsable&&s.updated?'Older snapshot: scan again once to enable browsing without rescanning. ':''}Logical file sizes; cloud placeholders and compressed files may occupy less disk space. Links and reparse points are skipped.`);
 }
 function renderWsl(){
@@ -205,7 +209,7 @@ document.querySelectorAll('[data-storage-tab]').forEach(button=>button.onclick=(
  storageTab=button.dataset.storageTab;document.querySelectorAll('[data-storage-tab]').forEach(b=>{b.classList.toggle('selected',b===button);b.setAttribute('aria-pressed',String(b===button));});$('#windows-storage-pane').hidden=storageTab!=='windows';$('#wsl-storage-pane').hidden=storageTab!=='wsl';saveStorageView();pollStorage(true);
 });
 document.querySelectorAll('[data-result-mode]').forEach(button=>button.onclick=()=>{
- resultMode=button.dataset.resultMode;document.querySelectorAll('[data-result-mode]').forEach(b=>{b.classList.toggle('selected',b===button);b.setAttribute('aria-pressed',String(b===button));});updateStorageFilter();
+ resultMode=button.dataset.resultMode;$('#storage-list').scrollTop=0;document.querySelectorAll('[data-result-mode]').forEach(b=>{b.classList.toggle('selected',b===button);b.setAttribute('aria-pressed',String(b===button));});updateStorageFilter();
 });
 $('#scan-scope').onchange=()=>showFolderScan($('#scan-scope').value);
 $('#saved-scan-locations').onchange=()=>{const path=$('#saved-scan-locations').value;if(path)showFolderScan(path);};
@@ -240,8 +244,10 @@ $('#confirm-clear-storage').onclick=async()=>{
   ++folderBrowseRequest;folderLoading=false;folderResultKey=null;folderScanCache.clear();savedScanStamp=null;savedScansLoaded=false;showPartialScan=false;
   activeFolderScan=null;storage=emptyFolderScan(selectedStoragePath);
   $('#clear-storage-dialog').close();renderFolderResults();
-  await pollStorage(true);toast('All saved folder scan history deleted. Your files are unchanged.');
+  await pollStorage(true);if(view==='settings')await loadSettings();toast('All saved folder scan history deleted. Your files are unchanged.');
  }catch(e){toast(e.message);}finally{button.disabled=false;}
 };
 
 restoreStorageView();
+
+$('#storage-list').addEventListener('scroll',saveStorageView,{passive:true});

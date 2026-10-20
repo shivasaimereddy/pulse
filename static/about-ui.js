@@ -12,7 +12,7 @@ async function loadAbout(){
   set('#about-system',info.system);
   set('#about-runtime','Python '+info.python+' · '+info.architecture);
   set('#about-database',info.database);
-  set('#about-recording',info.recording?'Performance recording is active':info.recordingError?'Needs attention: '+info.recordingError:'Not recording');
+  set('#about-recording',info.recording?'Performance recording is active':info.recordingError?'Needs attention: '+info.recordingError:info.recordingEnabled===false?'Saving is paused in Settings':'Not recording');
   set('#about-status',info.recordingError?'Recording needs attention: '+info.recordingError:'Connected to your local Pulse service.');
   $('#about-local-status').dataset.state=info.recording?'active':info.recordingError?'error':'idle';
   $('#about-copy').disabled=false;

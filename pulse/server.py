@@ -16,7 +16,8 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from . import __version__
-from .history_store import HistoryStore
+from .database_workspace import DatabaseWorkspace, preferred_database
+from .launch_options import choose_database
 from .storage_tools import FolderScanner, WslStorage, allowed_path, local_roots, run_wsl
 from .process_tools import checked_process, close_reason, inspect_process, process_metadata, runtime_task
 from .process_snapshot import ProcessSnapshot
@@ -29,6 +30,8 @@ history = deque(maxlen=90)
 snapshot = {}
 lock = threading.Lock()
 scan_save_lock = threading.Lock()
+database_picker_lock = threading.Lock()
+database_revision = secrets.token_hex(12)
 ACTION_TOKEN = secrets.token_urlsafe(32)
 MONITOR = psutil.Process()
 PROTECTED_PIDS = {os.getpid(), *[p.pid for p in MONITOR.parents()]}
@@ -135,7 +138,8 @@ class Handler(SimpleHTTPRequestHandler):
             database = Path(store.path) if store is not None else DATA_ROOT / 'pulse.sqlite3'
             payload = dict(name='Pulse', version=__version__, system=platform.platform(),
                            python=platform.python_version(), architecture=platform.machine(),
-                           database=str(database), recording=store is not None and not store.error,
+                           database=str(database), recording=store is not None and store.recording_enabled and not store.error,
+                           recordingEnabled=store.recording_enabled if store else False,
                            recordingError=store.error if store else None)
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -167,12 +171,53 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(payload).encode())
             return
+        if path == '/api/settings':
+            try:
+                if store is None:
+                    raise OSError('Local storage is unavailable.')
+                payload, status = store.settings(), 200
+                payload['storageScanning'] = bool(scan['running'])
+                from .launch_options import appdata_database
+                payload['defaultDatabase'] = str(appdata_database())
+            except (OSError, sqlite3.Error):
+                payload, status = dict(error='Settings could not be loaded.'), 503
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode())
+            return
+        if path in ('/api/activity', '/api/activity/comparison'):
+            try:
+                query = parse_qs(urlparse(self.path).query)
+                if store is None:
+                    raise OSError('Recording storage is unavailable.')
+                if path.endswith('/comparison'):
+                    ident = int(query.get('id', ['0'])[0])
+                    if not 0 < ident <= 9223372036854775807:
+                        raise ValueError('Choose a valid saved comparison.')
+                    payload = store.activity_comparison(ident)
+                    status = 200 if payload else 404
+                    payload = payload or dict(error='This comparison is no longer retained. Refresh the activity timeline.')
+                else:
+                    payload = store.activity_timeline(query.get('range', ['24h'])[0])
+                    status = 200
+            except ValueError as exc:
+                payload, status = dict(error=str(exc)), 400
+            except (OSError, sqlite3.Error):
+                payload, status = dict(error='The activity timeline could not be read.'), 503
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode())
+            return
         if path == '/api/insights':
             try:
                 if store is None:raise ValueError('Performance recording is unavailable.')
                 period=parse_qs(urlparse(self.path).query).get('range',['24h'])[0]
                 payload=store.performance_insights(period)
-                payload.update(recordingError=store.error,dropped=store.dropped)
+                payload.update(recordingError=store.error,dropped=store.dropped,recordingEnabled=store.recording_enabled)
                 status=200
             except ValueError as exc:
                 payload,status=dict(error=str(exc)),400
@@ -258,7 +303,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if path in ('/api/metrics', '/api/storage', '/api/session'):
             with lock:
-                body = json.dumps({'token': ACTION_TOKEN} if path.endswith('session') else snapshot if path.endswith('metrics') else scan).encode()
+                body = json.dumps({'token': ACTION_TOKEN} if path.endswith('session') else dict(snapshot, databaseRevision=database_revision) if path.endswith('metrics') else scan).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Cache-Control', 'no-store')
@@ -342,7 +387,53 @@ class Handler(SimpleHTTPRequestHandler):
             if length < 0 or length > 8192:
                 raise ValueError('Invalid request size')
             request = json.loads(self.rfile.read(length)) if length else {}
-            if self.path == '/api/storage/scan':
+            if not isinstance(request, dict):
+                raise ValueError('Send a settings or action object.')
+            if self.path == '/api/database/choose':
+                if not database_picker_lock.acquire(blocking=False):
+                    raise ValueError('A database chooser is already open. Check your taskbar.')
+                try:
+                    try:
+                        selected = choose_database(store.path if store else None)
+                    except Exception as exc:
+                        logging.exception('Database file chooser failed')
+                        raise RuntimeError('The Windows file chooser could not open. Close any existing chooser and try again.') from exc
+                finally:
+                    database_picker_lock.release()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                self.wfile.write(json.dumps({'path': selected or None}).encode())
+                return
+            elif self.path == '/api/database/switch':
+                global database_revision
+                if store is None or request.get('confirm') is not True:
+                    raise ValueError('Confirm the database change.')
+                if not isinstance(request.get('path'), str) or not request['path'].strip():
+                    raise ValueError('Choose a database first.')
+                with scan_save_lock:
+                    with lock:
+                        if scan['running'] or wsl_storage.state.get('scan', {}).get('running'):
+                            raise ValueError('Wait for the storage scan to finish, or stop it before changing databases.')
+                    saved = store.switch(request['path'])
+                    with lock:
+                        scan.clear()
+                        scan.update(saved or dict(path=str(Path.home()), items=[], files=[], errors=0,
+                                                  updated=None, visited=0, current='', cancelled=False, failure=None))
+                        scan.update(running=False, saving=False)
+                        database_revision = secrets.token_hex(12)
+            elif self.path == '/api/settings':
+                if store is None:
+                    raise ValueError('Local storage is unavailable.')
+                if set(request) != {'recordingEnabled'}:
+                    raise ValueError('Choose a supported setting.')
+                store.set_recording(request['recordingEnabled'])
+            elif self.path == '/api/history/clear':
+                if store is None or request.get('confirm') is not True:
+                    raise ValueError('Confirm deletion of performance history.')
+                store.clear_performance()
+            elif self.path == '/api/storage/scan':
                 with scan_save_lock:
                     scanner.start(request.get('path',str(Path.home())))
             elif self.path == '/api/storage/clear-history':
@@ -371,7 +462,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self.send_response(202)
             self.end_headers()
-        except (ValueError,KeyError,OSError,sqlite3.Error,subprocess.TimeoutExpired) as exc:
+        except (ValueError,KeyError,OSError,sqlite3.Error,subprocess.TimeoutExpired,RuntimeError) as exc:
             self.send_response(400)
             self.send_header('Content-Type','application/json')
             self.end_headers()
@@ -387,7 +478,7 @@ def create_service(port=8765, database=None):
 
     http = LocalServer(('127.0.0.1', port), Handler)
     try:
-        store = HistoryStore(database or DATA_ROOT / 'pulse.sqlite3')
+        store = DatabaseWorkspace(database or preferred_database() or DATA_ROOT / 'pulse.sqlite3')
         saved_scan = store.latest_scan()
         if saved_scan:
             scan.update(saved_scan, running=False)
@@ -402,10 +493,20 @@ def create_service(port=8765, database=None):
         raise
 
 
-def main():
-    http = create_service()
+def main(argv=None):
+    from .launch_options import database_option
+    database = database_option(argv)
+    if database is False:
+        return
+    try:
+        http = create_service(database=database)
+    except OSError as error:
+        if getattr(error, 'winerror', None) == 10048 or getattr(error, 'errno', None) == 98:
+            raise SystemExit('Pulse is already running on port 8765. Quit it before starting with a different database.') from error
+        raise
     if sys.stdout is not None:
         print('Laptop dashboard: http://127.0.0.1:8765', flush=True)
+        print('Database: ' + str(store.path.resolve()), flush=True)
     try:
         http.serve_forever()
     except KeyboardInterrupt:

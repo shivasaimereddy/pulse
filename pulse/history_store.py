@@ -18,6 +18,18 @@ RANGES = {'1h': (3600, 60), '24h': (DAY, 60), '7d': (7 * DAY, 3600),
 
 
 class HistoryStore:
+    def activity_timeline(self, period='24h', now=None):
+        from . import activity_timeline
+        with self.connect() as db:
+            result = activity_timeline.query(db, period, time.time() if now is None else now, self.insight_session)
+        result.update(recordingError=self.error, dropped=self.dropped, recordingEnabled=self.recording_enabled)
+        return result
+
+    def activity_comparison(self, ident):
+        from . import activity_timeline
+        with self.connect() as db:
+            return activity_timeline.comparison(db, ident)
+
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -27,6 +39,7 @@ class HistoryStore:
         self.dropped = 0
         self.last_saved = None
         self.last_cleanup = 0
+        self.record_lock = threading.RLock()
         self.insight_engine = insights.InsightEngine()
         self.insight_session = uuid.uuid4().hex
         with self.connect() as db:
@@ -51,10 +64,61 @@ class HistoryStore:
                     PRIMARY KEY(scan_id,key));
                 CREATE INDEX IF NOT EXISTS scan_entries_parent_size ON scan_entries(scan_id,parent,size DESC,key);
                 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 PRAGMA user_version=3;
             ''')
             insights.install(db)
+            preference = db.execute("SELECT value FROM preferences WHERE key='recording'").fetchone()
+            self.recording_enabled = preference is None or preference[0] != 'false'
         self.compact_entry_index()
+
+    def settings(self):
+        with self.record_lock, self.connect() as db:
+            saved = db.execute("SELECT value FROM metadata WHERE key='lastSaved'").fetchone()
+            size = 0
+            for path in (self.path, Path(str(self.path)+'-wal'), Path(str(self.path)+'-shm')):
+                try:
+                    size += path.stat().st_size
+                except FileNotFoundError:
+                    pass
+            return dict(recordingEnabled=self.recording_enabled, recordingError=self.error,
+                        lastSaved=saved[0] if saved else None, database=str(self.path.resolve()),
+                        databaseBytes=size, scanCount=db.execute('SELECT COUNT(*) FROM scans').fetchone()[0],
+                        retention=dict(detailDays=7, trendsDays=365, appsDays=30, scanLimit=20))
+
+    def set_recording(self, enabled):
+        if type(enabled) is not bool:
+            raise ValueError('Recording must be enabled or disabled.')
+        with self.record_lock:
+            if enabled == self.recording_enabled:
+                return
+            if not enabled:
+                self._flush()
+                if self.error:
+                    raise ValueError('Queued history could not be saved. Resolve the recording error before pausing.')
+            with self.connect() as db:
+                db.execute("INSERT INTO preferences VALUES ('recording',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                           ('true' if enabled else 'false',))
+            self.recording_enabled = enabled
+            self.insight_engine = insights.InsightEngine()
+            self.insight_session = uuid.uuid4().hex
+
+    def clear_performance(self):
+        with self.record_lock:
+            with self.connect() as db:
+                for table in ('metrics', 'apps', 'metadata', 'insight_minutes', 'insight_events', 'insight_meta'):
+                    db.execute('DELETE FROM ' + table)
+            while True:
+                try:
+                    self.pending.get_nowait()
+                except queue.Empty:
+                    break
+            self.insight_engine = insights.InsightEngine()
+            self.insight_session = uuid.uuid4().hex
+            self.last_saved = None
+            self.last_cleanup = 0
+            self.error = None
+            self.dropped = 0
 
     def compact_entry_index(self):
         with self.connect() as db:
@@ -100,6 +164,11 @@ class HistoryStore:
         self.worker.start()
 
     def submit(self, data):
+        with self.record_lock:
+            if self.recording_enabled:
+                self._submit(data)
+
+    def _submit(self, data):
         # Store only compact summaries; never retain the live process objects or paths.
         apps = {}
         for process in data['processes']:
@@ -161,6 +230,10 @@ class HistoryStore:
         self.flush()
 
     def flush(self):
+        with self.record_lock:
+            self._flush()
+
+    def _flush(self):
         samples = []
         while True:
             try:

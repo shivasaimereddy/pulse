@@ -7,17 +7,17 @@ const elements=new Map();
 function element() {
   return {dataset:{},style:{setProperty(){}},classList:{toggle(){},add(){},remove(){}},value:'',textContent:'',innerHTML:'',
     addEventListener(){},setAttribute(){},querySelectorAll(){return []},options:[],
-    replaceChildren(){},append(){},add(){},click(){}};
+    getBoundingClientRect(){return {width:800,height:360}},contains(){return false},querySelector(){return null},scrollIntoView(){},replaceChildren(){},append(){},add(){},click(){}};
 }
 for(const match of html.matchAll(/\bid="([^"]+)"/g))elements.set('#'+match[1],element());
 const requests=[];
 const sandbox={document:{body:element(),documentElement:element(),querySelector:selector=>elements.get(selector)||null,
   querySelectorAll:()=>[],createElement:element,addEventListener(){}},
-  setInterval(){},setTimeout(){},clearTimeout(){},console,AbortController,
+  setInterval(){},setTimeout(){},clearTimeout(){},console,AbortController,Option:function(text,value){return {text,value,dataset:{}}},
   fetch:async url=>{requests.push(url);return {ok:true,json:async()=>({})}},
   window:{scrollY:0,requestAnimationFrame(callback){callback();},scrollTo(){},addEventListener(){},matchMedia(){return {matches:false,addEventListener(){}}}},navigator:{},URL,URLSearchParams,Blob};
 const context=vm.createContext(sandbox);
-for(const script of ['startup.js','theme.js','app.js','storage-ui.js','process-ui.js','changes-ui.js','insights-ui.js','about-ui.js','navigation.js']){
+for(const script of ['startup.js','theme.js','app.js','storage-ui.js','process-ui.js','changes-ui.js','insights-ui.js','about-ui.js','workspace-ui.js','storage-map.js','storage-explorer.js','activity-ui.js','settings-ui.js','navigation.js']){
   vm.runInContext(fs.readFileSync('static/'+script,'utf8'),context,{filename:script});
 }
 assert.ok(requests.includes('/api/metrics'),'Shared monitoring must start before optional views load');
@@ -37,6 +37,19 @@ vm.runInContext(`
  $('#insights-kind').value='all';insightsData=null;
 `,context);
 console.log('Performance insight empty states, event review actions, and resource filters passed.');
+
+vm.runInContext(`
+ storage={path:'C:/Restored',updated:1,items:[{name:'a',path:'C:/Restored/a',kind:'file',size:1}],files:[],errors:0};
+ resultMode='folders';restoredStorageListScroll={path:storage.path,mode:'folders',top:125};
+ folderLoading=true;renderFolderResults();
+ if(!restoredStorageListScroll)throw Error('List scroll was restored before saved contents finished loading');
+ folderLoading=false;renderFolderResults();
+ if($('#storage-list').scrollTop!==125||restoredStorageListScroll!==null)throw Error('List scroll did not restore after saved contents loaded');
+ restoredStorageListScroll={path:'C:/Another',mode:'folders',top:300};$('#storage-list').scrollTop=10;renderFolderResults();
+ if($('#storage-list').scrollTop!==10)throw Error('An unrelated saved location changed the list scroll position');
+ storage=null;restoredStorageListScroll=null;$('#storage-list').scrollTop=0;
+`,context);
+console.log('Saved storage list scroll waits for matching loaded contents.');
 
 (async()=>{
  await vm.runInContext(`(async()=>{
@@ -107,11 +120,11 @@ console.log('Performance insight empty states, event review actions, and resourc
  await vm.runInContext(`(async()=>{
  const savedViewTest=new Map();
  sessionStorage={getItem:key=>savedViewTest.get(key),setItem:(key,value)=>savedViewTest.set(key,value)};
- renderProcesses=()=>{};pollStorage=()=>{};loadHistory=()=>{};loadChanges=()=>{};loadInsights=()=>{};loadAbout=()=>{};
+ renderProcesses=()=>{};pollStorage=()=>{};loadHistory=()=>{};loadChanges=()=>{};loadInsights=()=>{};loadAbout=()=>{};loadActivity=()=>{};loadSettings=()=>{};
  for(const name of dashboardViews){
   changeView(name);view='overview';await restoreDashboardView();
   if(view!==name)throw Error('Refresh did not restore '+name);
-  const sections={overview:'#overview',processes:'#process-section',storage:'#storage-section',changes:'#changes-section',history:'#history-section',optimize:'#optimize-section',about:'#about-section'};
+  const sections={settings:'#settings-section',activity:'#activity-section',overview:'#overview',processes:'#process-section',storage:'#storage-section',changes:'#changes-section',history:'#history-section',optimize:'#optimize-section',about:'#about-section'};
   for(const [screen,id] of Object.entries(sections))if($(id).hidden!==(screen!==name))throw Error('Incorrect screen visibility for '+name);
  }
  sessionStorage.setItem('pulse.activeView','invalid');await restoreDashboardView();

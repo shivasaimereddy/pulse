@@ -1,0 +1,25 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const nodes=new Map(),saved=new Map(),posts=[];
+const $=id=>{if(!nodes.has(id))nodes.set(id,{value:'system',dataset:{},disabled:false,textContent:'',attrs:{},setAttribute(k,v){this.attrs[k]=v},focus(){this.focused=true},addEventListener(){},replaceChildren(){},showModal(){this.open=true},close(){this.open=false}});return nodes.get(id)};
+const fixture={recordingEnabled:true,lastSaved:100,database:'C:/Users/Example/Pulse/pulse.sqlite3',databaseBytes:1000,scanCount:2,defaultDatabase:'C:/Default/pulse.sqlite3'};
+let reloads=0;
+const context=vm.createContext({window:{addEventListener(){},location:{reload(){reloads++}}},sessionStorage:{removeItem(){}},$,liveDisplayInterval:2000,lastDisplayPoll:0,paused:false,workspaceRecordAt:0,view:'settings',insightsData:{},savedHistory:{},activityData:{},insightsRequest:0,historyRequest:0,activityRequest:0,Date,Number,set:(id,v)=>$(id).textContent=v,bytes:n=>n+' B',localStorage:{getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v)},navigator:{clipboard:{writeText:async()=>{}}},setInterval(){},liveConnectionLabel:()=> 'Live',toast(){},action(){},fetch:async()=>({ok:true,json:async()=>({...fixture})}),post:async(path,body)=>{posts.push({path,body});return {json:async()=>({path:'C:/Chosen/pulse.sqlite3'})}}});
+vm.runInContext(fs.readFileSync('static/settings-ui.js','utf8'),context);
+(async()=>{
+ await vm.runInContext('loadSettings()',context);assert.equal($('#settings-recording').checked,true);assert.equal($('#settings-database-path').textContent,fixture.database);
+ $('#settings-refresh').value='5000';$('#settings-refresh').onchange();assert.equal(context.liveDisplayInterval,5000);assert.equal(saved.get('pulse.refreshInterval'),'5000');
+ $('#settings-start').value='storage';$('#settings-start').onchange();assert.equal(saved.get('pulse.startView'),'storage');
+ fixture.recordingEnabled=false;$('#settings-recording').checked=false;await $('#settings-recording').onchange();assert.equal(posts[0].path,'/api/settings');assert.equal(posts[0].body.recordingEnabled,false);assert.match($('#settings-recording-state').textContent,/paused/);
+ $('#settings-clear-performance').onclick();assert.equal($('#clear-performance-dialog').open,true);assert.equal(posts.length,1,'Opening confirmation must not erase history');
+ await $('#confirm-clear-performance').onclick();assert.equal(posts[1].path,'/api/history/clear');assert.equal(posts[1].body.confirm,true);assert.equal(context.insightsData,null);assert.equal(context.activityData,null);
+ $('#settings-tab-recording').onclick();assert.equal($('#settings-panel-workspace').hidden,true);assert.equal($('#settings-panel-recording').hidden,false);assert.equal($('#settings-tab-recording').attrs['aria-selected'],'true');
+ $('#settings-tab-recording').onkeydown({key:'ArrowRight',preventDefault(){}});assert.equal($('#settings-panel-data').hidden,false);assert.equal($('#settings-tab-data').focused,true);
+ $('#settings-tab-data').onkeydown({key:'Home',preventDefault(){}});assert.equal($('#settings-panel-workspace').hidden,false);
+ $('#settings-change-database').onclick();assert.equal($('#database-dialog').open,true);assert.equal($('#database-confirm').disabled,true);
+ await $('#database-browse').onclick();assert.equal($('#database-selected-path').value,'C:/Chosen/pulse.sqlite3');assert.equal(reloads,0,'Choosing a file must not switch immediately');
+ $('#database-cancel').onclick();assert.equal($('#database-dialog').open,false);
+ $('#settings-change-database').onclick();$('#database-default').onclick();assert.equal($('#database-selected-path').value,fixture.defaultDatabase);
+ await $('#database-confirm').onclick();assert.equal(posts.at(-1).path,'/api/database/switch');assert.equal(posts.at(-1).body.confirm,true);assert.equal(reloads,1);
+ context.fetch=async()=>({ok:false,json:async()=>({error:'Offline'})});await vm.runInContext('loadSettings()',context);assert.equal($('#settings-recording').disabled,true);assert.equal($('#settings-clear-performance').disabled,true);
+ console.log('Settings UI checks passed: browser preferences, recording, guarded deletion and offline controls.');
+})().catch(error=>{console.error(error);process.exitCode=1});

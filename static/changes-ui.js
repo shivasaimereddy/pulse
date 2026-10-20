@@ -1,4 +1,4 @@
-let storageChanges=[],changesMode='items',changesRequest=0;
+let storageChanges=[],changesMode='items',changesRequest=0,changesTimelineContext=null;
 function currentChanges(){return storageChanges.find(location=>location.path===$('#changes-location').value);}
 const signedBytes=value=>(value>0?'+':value<0?'−':'')+bytes(Math.abs(value));
 async function loadChanges(){
@@ -7,7 +7,7 @@ async function loadChanges(){
   const response=await fetch('/api/storage/changes');const result=await response.json();
   if(!response.ok)throw Error(result.error||'Changes could not be loaded.');
   if(request!==changesRequest)return;
-  const selected=$('#changes-location').value;storageChanges=result.locations;
+  const selected=$('#changes-location').value;storageChanges=result.locations;changesTimelineContext=null;
   $('#changes-location').innerHTML=storageChanges.length?storageChanges.map(location=>`<option value="${escapeHtml(location.path)}">${escapeHtml(location.path)}</option>`).join(''):'<option value="">No saved scans yet</option>';
   if(storageChanges.some(location=>location.path===selected))$('#changes-location').value=selected;
   else if(storageChanges.length)$('#changes-location').value=(storageChanges.find(location=>location.comparison?.available)||storageChanges[0]).path;
@@ -26,7 +26,7 @@ function renderChanges(){
   set('#changes-scan',location?'Open in Storage':'Go to Storage');return;
  }
  const c=comparison;
- set('#changes-status','Saved comparison · updated '+new Date(c.currentAt*1000).toLocaleString());
+ set('#changes-status',(changesTimelineContext?'Timeline comparison · Refresh returns to the latest scans · ':'Saved comparison · updated ')+new Date(c.currentAt*1000).toLocaleString());
  set('#changes-net',signedBytes(c.net));$('#changes-net').dataset.direction=c.net>0?'up':c.net<0?'down':'flat';
  set('#changes-added',signedBytes(c.added));set('#changes-reduced',signedBytes(-c.reduced));
  set('#changes-net-detail',c.net>0?'More space used in this location':c.net<0?'Less space used in this location':'No net size change');
