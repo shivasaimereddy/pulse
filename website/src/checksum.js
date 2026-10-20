@@ -2,13 +2,11 @@
 (()=>{
   'use strict';
   const dialog=document.querySelector('#verify-download');
-  const select=document.querySelector('#checksum-file');
   const expected=document.querySelector('#expected-checksum');
   const command=document.querySelector('#checksum-command');
   const status=document.querySelector('#checksum-status');
-  const files={exe:{name:'Pulse.exe',hash:dialog.dataset.exeHash},zip:{name:'Pulse-Windows-x64.zip',hash:dialog.dataset.zipHash}};
   function update(){
-    const file=files[select.value]||files.exe;
+    const file={name:dialog.dataset.filename,hash:dialog.dataset.exeHash};
     expected.textContent=file.hash;
     command.textContent=[
       "$expected = '"+file.hash+"'",
@@ -24,10 +22,10 @@
     try{await navigator.clipboard.writeText(text);status.textContent=message}
     catch{status.textContent='Clipboard access is unavailable. Select and copy the command above.'}
   }
-  document.querySelector('#open-checksum').addEventListener('click',event=>{event.preventDefault();dialog.showModal()});
+  document.querySelector('#open-checksum').addEventListener('click',event=>{event.preventDefault();update();dialog.showModal()});
   document.querySelector('#checksum-close').addEventListener('click',()=>dialog.close());
   dialog.addEventListener('close',()=>{status.textContent=''});
-  select.addEventListener('change',update);
+  document.addEventListener('pulse-release-change',update);
   document.querySelector('#copy-checksum-command').addEventListener('click',()=>copy(command.textContent,'Command copied. Paste it into Windows PowerShell.'));
   document.querySelector('#copy-checksum').addEventListener('click',()=>copy(expected.textContent,'Expected checksum copied.'));
   update();

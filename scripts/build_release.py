@@ -50,6 +50,7 @@ def main():
         str(ROOT / 'packaging/desktop_entry.py')])
     exe = ROOT / 'dist/Pulse.exe'
     digest = hashlib.sha256(exe.read_bytes()).hexdigest()
+    (ROOT / 'dist/release-build.json').write_text(json.dumps(dict(version=__version__, sha256=digest, bytes=exe.stat().st_size), indent=2), encoding='utf-8')
     (ROOT / 'dist/SHA256SUMS.txt').write_text(digest + '  Pulse.exe\n', encoding='utf-8')
     (ROOT / 'dist/START HERE.txt').write_text('Pulse ' + __version__ + '\n\nDouble-click Pulse.exe. No Python installation is needed.\nThe dashboard opens in your default browser. Keep the Pulse control window open while monitoring. Click Quit Pulse to stop.\n\nYour readings and scans are saved in %LOCALAPPDATA%\\Pulse. This download contains no existing user history.\nNo administrator privileges are required. Some system processes and folders may be inaccessible.\n\nThis release is unsigned; Windows may show an unknown publisher prompt. Only run copies obtained from a trusted source.\n', encoding='utf-8')
     shutil.copytree(licenses, ROOT / 'dist/licenses', dirs_exist_ok=True)

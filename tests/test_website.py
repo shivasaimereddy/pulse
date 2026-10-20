@@ -45,6 +45,28 @@ class WebsiteTests(unittest.TestCase):
             elif parsed.fragment:
                 self.assertIn(parsed.fragment,self.page.ids)
 
+    def test_product_tour_is_native_interactive_content(self):
+        self.assertIn('data-pulse-demo="tour"', self.html)
+        self.assertEqual(self.html.count('data-pulse-demo='), 1)
+        self.assertIn('src="demo.js?v=', self.html)
+        self.assertIn('href="demo.css?v=', self.html)
+        self.assertNotIn('assets/screens/', self.html)
+        self.assertNotIn('id="product-preview"', self.html)
+        self.assertIn('never reads your device or files', self.html)
+        self.assertTrue((SITE/'demo.js').is_file())
+        self.assertFalse((SITE/'assets/screens').exists())
+
+    def test_clear_intro_and_progressive_enhancement(self):
+        self.assertNotIn('laptop', self.html.lower())
+        self.assertIn('class="principles-strip"', self.html)
+        self.assertIn('class="launch-steps"', self.html)
+        self.assertIn('class="app-story-card"', self.html)
+        self.assertIn('<noscript>', self.html)
+        self.assertIn('assets/demo-poster.svg', self.html)
+        catalog=json.loads((SITE/'releases.json').read_text())
+        if len(catalog['releases'])==1:
+            self.assertIn('for="download-version" hidden', self.html)
+
     def test_download_matches_version_checksum_and_archive(self):
         self.assertEqual(self.release['version'],__version__)
         executable=(SITE/self.release['download']).read_bytes()
@@ -52,8 +74,12 @@ class WebsiteTests(unittest.TestCase):
         self.assertEqual(len(executable),self.release['bytes'])
         self.assertTrue(executable.startswith(b'MZ'))
         self.assertIn(self.release['sha256'],(SITE/'downloads/SHA256SUMS.txt').read_text())
-        with zipfile.ZipFile(SITE/'downloads/Pulse-Windows-x64.zip') as archive:
-            self.assertEqual(hashlib.sha256(archive.read('Pulse.exe')).hexdigest(),self.release['sha256'])
+        catalog=json.loads((SITE/'releases.json').read_text())
+        self.assertEqual(catalog['latest'],__version__)
+        for release in catalog['releases']:
+            self.assertEqual(hashlib.sha256((SITE/release['download']).read_bytes()).hexdigest(),release['sha256'])
+            self.assertIn(release['sha256'],(SITE/'downloads'/release['version']/'SHA256SUMS.txt').read_text())
+        self.assertFalse(any((SITE/'downloads').rglob('*.zip')))
 
     def test_previews_are_valid_private_data_free_vectors(self):
         for image in self.page.images:
@@ -78,17 +104,18 @@ class WebsiteTests(unittest.TestCase):
             self.assertNotIn(term,self.html.lower())
         self.assertNotIn('repository',self.release)
 
-    def test_checksum_guide_uses_both_release_hashes_and_stays_on_page(self):
-        import re
+    def test_checksum_guide_uses_selected_exe_and_stays_on_page(self):
         self.assertIn('href="#verify-download" id="open-checksum"',self.html)
         self.assertIn('data-exe-hash="'+self.release['sha256']+'"',self.html)
-        digest=hashlib.sha256((SITE/'downloads/Pulse-Windows-x64.zip').read_bytes()).hexdigest()
-        self.assertIn('data-zip-hash="'+digest+'"',self.html)
+        self.assertIn('data-filename="'+self.release['filename']+'"',self.html)
+        self.assertIn('id="download-version"',self.html)
+        self.assertIn('id="release-catalog"',self.html)
         self.assertIn('id="checksum-command"',self.html)
         self.assertNotIn('type="file"',self.html)
         self.assertIn('<dialog class="checksum-modal"',self.html)
         self.assertIn('Copy verification command',self.html)
-        self.assertNotIn('href="downloads/SHA256SUMS.txt">Verify checksum',self.html)
+        self.assertNotIn('Download ZIP',self.html)
+        self.assertNotIn('ARCHIVE_URL',self.html)
 
     def test_social_metadata_is_server_rendered_absolute_and_complete(self):
         import re

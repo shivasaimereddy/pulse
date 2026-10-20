@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const releases=[{version:'1.0.1',filename:'Pulse-1.0.1-Windows-x64.exe',download:'downloads/1.0.1/Pulse-1.0.1-Windows-x64.exe',bytes:12*1024*1024,sha256:'a'.repeat(64),platform:'Windows x64'},{version:'1.0.0',filename:'Pulse-1.0.0-Windows-x64.exe',download:'downloads/1.0.0/Pulse-1.0.0-Windows-x64.exe',bytes:10*1024*1024,sha256:'b'.repeat(64),platform:'Windows x64'}];
+const nodes=new Map(),emitted=[];
+const get=id=>{if(!nodes.has(id))nodes.set(id,{events:{},dataset:{},value:'',textContent:'',addEventListener(name,fn){this.events[name]=fn}});return nodes.get(id)};
+get('#release-catalog').textContent=JSON.stringify({latest:'1.0.1',releases});get('#download-version').value='1.0.1';
+vm.runInNewContext(fs.readFileSync('website/src/releases.js','utf8'),{document:{querySelector:get,querySelectorAll:()=>[],dispatchEvent:event=>emitted.push(event.type)},Event:class{constructor(type){this.type=type}}});
+assert.equal(get('#version-download').href,releases[0].download);
+get('#download-version').value='1.0.0';get('#download-version').events.change();
+assert.equal(get('#version-download').href,releases[1].download);assert.equal(get('#version-download').download,releases[1].filename);
+assert.equal(get('#verify-download').dataset.exeHash,releases[1].sha256);assert.equal(get('#verify-download').dataset.filename,releases[1].filename);
+assert.ok(get('#selected-release-details').textContent.includes('Previous release'));
+assert.equal(get('#checksum-file-link').href,'downloads/1.0.0/SHA256SUMS.txt');assert.equal(emitted.at(-1),'pulse-release-change');
+get('#download-version').value='invalid';get('#download-version').events.change();assert.equal(get('#version-download').href,releases[0].download);
+console.log('Release selection synchronizes download, version, size, filename and verification hash.');

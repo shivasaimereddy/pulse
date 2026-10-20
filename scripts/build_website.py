@@ -1,77 +1,77 @@
-"""Build a self-contained product website with verified release downloads."""
+"""Build the self-contained product website and retained, versioned EXE downloads."""
 import hashlib
+from html import escape
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
-import zipfile
 from urllib.parse import urljoin, urlsplit
-from html import escape
+import zipfile
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
 from pulse import __version__
-from generate_product_previews import main as generate_previews
+from website_releases import prepare
 
 
 def main():
-    website = ROOT / 'website'
-    source, output = website / 'src', website / 'dist'
-    executable = ROOT / 'dist' / 'Pulse.exe'
-    archive = ROOT / 'dist' / ('Pulse-'+__version__+'-Windows-x64.zip')
-    if not executable.is_file() or not archive.is_file():
-        raise SystemExit('Build the matching desktop release first using scripts/Build Release.cmd.')
-    config = json.loads((website / 'site.config.json').read_text(encoding='utf-8'))
+    website=ROOT/'website'
+    source,output=website/'src',website/'dist'
+    config=json.loads((website/'site.config.json').read_text(encoding='utf-8'))
     site_url=config['siteUrl'].rstrip('/')+'/'
     parsed=urlsplit(site_url)
     if parsed.scheme!='https' or not parsed.netloc or parsed.query or parsed.fragment:
         raise SystemExit('Set siteUrl to the public HTTPS page URL without query parameters or fragments.')
-    # The static hosting bundle includes downloads; no dependency on GitHub Releases.
-    if config['downloadUrl'] != 'downloads/Pulse.exe' or config['archiveUrl'] != 'downloads/Pulse-Windows-x64.zip':
-        raise SystemExit('This builder expects local downloads/Pulse.exe and downloads/Pulse-Windows-x64.zip paths.')
-    generate_previews()
-    output.mkdir(parents=True,exist_ok=True)
-    shutil.copytree(source,output,dirs_exist_ok=True)
+    try:
+        artifacts,releases=prepare(ROOT,__version__,os.environ.get('PULSE_RELEASE_DIR'))
+    except (ValueError,OSError,KeyError) as error:
+        raise SystemExit(str(error))
+    latest=releases[0]
+    # Validate the exact generated directory before replacing build output.
+    if output.resolve()!=ROOT.resolve()/'website'/'dist' or output.is_symlink():
+        raise SystemExit('Refusing to replace an unexpected website output directory.')
+    if output.exists():shutil.rmtree(output)
+    shutil.copytree(source,output,ignore=shutil.ignore_patterns('theme.css','clarity.css','polish.css','screens','social.svg','overview.svg','overview-dark.svg','apps.svg','history.svg','storage.svg'))
     social_file=output/'assets/social.png'
-    social_digest=hashlib.sha256(social_file.read_bytes()).hexdigest()[:12]
-    social_name='pulse-share-'+social_digest+'.png'
+    social_name='pulse-share-'+hashlib.sha256(social_file.read_bytes()).hexdigest()[:12]+'.png'
     shutil.copy2(social_file,output/'assets'/social_name)
-    for old_image in (output/'assets').glob('pulse-share-*.png'):
-        if old_image.name!=social_name:old_image.unlink()
+    for release in releases:
+        original=artifacts/release['version']
+        target=output/release['download']
+        target.parent.mkdir(parents=True)
+        shutil.copy2(original/'Pulse.exe',target)
+        (target.parent/'SHA256SUMS.txt').write_text(release['sha256']+'  '+release['filename']+'\n',encoding='utf-8')
+        notices=[]
+        for notice in sorted((original/'licenses').glob('*')):
+            if notice.is_file():notices.append('\n'+notice.name+'\n'+'='*60+'\n'+notice.read_text(encoding='utf-8',errors='replace'))
+        (target.parent/'THIRD-PARTY-NOTICES.txt').write_text('\n'.join(notices),encoding='utf-8')
     downloads=output/'downloads'
-    downloads.mkdir(exist_ok=True)
-    shutil.copy2(executable,downloads/'Pulse.exe')
-    shutil.copy2(archive,downloads/'Pulse-Windows-x64.zip')
-    digest=hashlib.sha256(executable.read_bytes()).hexdigest()
-    # Reject mismatched stale executable/archive pairs.
-    with zipfile.ZipFile(archive) as release:
-        if hashlib.sha256(release.read('Pulse.exe')).hexdigest()!=digest:
-            raise SystemExit('Executable and versioned archive do not match. Rebuild the desktop release.')
-    (downloads/'SHA256SUMS.txt').write_text(digest+'  Pulse.exe\n'+hashlib.sha256(archive.read_bytes()).hexdigest()+'  Pulse-Windows-x64.zip\n',encoding='utf-8')
-    notices=[]
-    for notice in sorted((ROOT/'dist/licenses').glob('*')):
-        if notice.is_file():
-            notices.append('\n'+'='*70+'\n'+notice.name+'\n'+'='*70+'\n'+notice.read_text(encoding='utf-8',errors='replace'))
-    (downloads/'THIRD-PARTY-NOTICES.txt').write_text('\n'.join(notices),encoding='utf-8')
-    replacements={
-        'VERSION':__version__, 'SIZE':f'{executable.stat().st_size/1024/1024:.1f} MB', 'SHA256':digest,
-        'DOWNLOAD_URL':config['downloadUrl'], 'ARCHIVE_URL':config['archiveUrl'],
-        'ARCHIVE_SHA256':hashlib.sha256(archive.read_bytes()).hexdigest(),
-        'SITE_URL':site_url, 'SOCIAL_IMAGE_URL':urljoin(site_url,'assets/'+social_name)}
+    # Compatibility aliases serve the latest EXE; versioned URLs remain immutable.
+    shutil.copy2(output/latest['download'],downloads/'Pulse.exe')
+    shutil.copy2(downloads/latest['version']/'THIRD-PARTY-NOTICES.txt',downloads/'THIRD-PARTY-NOTICES.txt')
+    (downloads/'SHA256SUMS.txt').write_text(latest['sha256']+'  Pulse.exe\n',encoding='utf-8')
+    options=''.join('<option value="'+r['version']+'">Version '+r['version']+(' · Latest' if i==0 else ' · Previous release')+'</option>' for i,r in enumerate(releases))
+    release_rows=''.join('<article class="release-entry"><div><h4>Pulse '+r['version']+'</h4><span>'+('Latest release' if i==0 else 'Previous release')+' · Windows x64 · '+f"{r['bytes']/1024/1024:.1f} MB"+'</span></div><ul>'+''.join('<li>'+escape(note)+'</li>' for note in r['notes'])+'</ul><a href="'+r['download']+'" download="'+r['filename']+'">Download EXE ↗</a></article>' for i,r in enumerate(releases))
+    catalog=dict(latest=latest['version'],releases=releases)
+    replacements=dict(RELEASE_PICKER_STATE='hidden' if len(releases)==1 else '',VERSION=__version__,SIZE=f"{latest['bytes']/1024/1024:.1f} MB",SHA256=latest['sha256'],DOWNLOAD_URL=latest['download'],FILENAME=latest['filename'],SITE_URL=site_url,SOCIAL_IMAGE_URL=urljoin(site_url,'assets/'+social_name))
     html=(output/'index.html').read_text(encoding='utf-8')
-    structured={
-        '@context':'https://schema.org','@graph':[
-            {'@type':'WebSite','name':'Pulse','url':site_url},
-            {'@type':'SoftwareApplication','name':'Pulse','url':site_url,
-             'description':'A Windows laptop dashboard for live performance monitoring, storage exploration, and local performance history.',
-             'applicationCategory':'UtilitiesApplication','operatingSystem':'Windows x64',
-             'softwareVersion':__version__,'downloadUrl':urljoin(site_url,config['downloadUrl']),
-             'image':urljoin(site_url,'assets/'+social_name)}]}
-    html=html.replace('{{STRUCTURED_DATA}}',json.dumps(structured,ensure_ascii=True).replace('<','\\u003c'))
+    structured={'@context':'https://schema.org','@graph':[
+        {'@type':'WebSite','name':'Pulse','url':site_url},
+        {'@type':'SoftwareApplication','name':'Pulse','url':site_url,'description':'A local Windows PC dashboard for live performance, storage exploration and recorded history.','applicationCategory':'UtilitiesApplication','operatingSystem':'Windows x64','softwareVersion':__version__,'downloadUrl':urljoin(site_url,latest['download']),'fileSize':str(latest['bytes'])+' bytes','image':urljoin(site_url,'assets/'+social_name)}]}
+    html=html.replace('{{STRUCTURED_DATA}}',json.dumps(structured).replace('<','\\u003c'))
+    html=html.replace('{{RELEASE_OPTIONS}}',options).replace('{{RELEASE_ROWS}}',release_rows).replace('{{RELEASE_CATALOG}}',json.dumps(catalog,ensure_ascii=True).replace('<','\\u003c'))
     for key,value in replacements.items():html=html.replace('{{'+key+'}}',escape(value,quote=True))
+    # A fresh HTML release must never run an older cached script or stylesheet.
+    for asset in output.iterdir():
+        if asset.suffix in ('.js','.css'):
+            fingerprint=hashlib.sha256(asset.read_bytes()).hexdigest()[:12]
+            html=html.replace('src="'+asset.name+'"','src="'+asset.name+'?v='+fingerprint+'"')
+            html=html.replace('href="'+asset.name+'"','href="'+asset.name+'?v='+fingerprint+'"')
     if '{{' in html:raise SystemExit('An unresolved website template value remains.')
     (output/'index.html').write_text(html,encoding='utf-8')
-    (output/'release.json').write_text(json.dumps(dict(version=__version__,bytes=executable.stat().st_size,sha256=digest,download=config['downloadUrl']),indent=2),encoding='utf-8')
+    (output/'release.json').write_text(json.dumps(latest,indent=2),encoding='utf-8')
+    (output/'releases.json').write_text(json.dumps(catalog,indent=2),encoding='utf-8')
     (output/'robots.txt').write_text('User-agent: *\nAllow: /\nSitemap: '+urljoin(site_url,'sitemap.xml')+'\n',encoding='utf-8')
     (output/'sitemap.xml').write_text('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>'+escape(site_url)+'</loc></url></urlset>\n',encoding='utf-8')
     bundle=ROOT/'dist/Pulse-website.zip'
@@ -79,8 +79,8 @@ def main():
         for file in sorted(output.rglob('*')):
             if file.is_file():package.write(file,file.relative_to(output))
     print('Website ready:',output)
-    print('Upload archive:',bundle)
+    print('Retained releases:',', '.join(r['version'] for r in releases))
+    print('Deployment archive (not a visitor download):',bundle)
 
 
-if __name__=='__main__':
-    main()
+if __name__=='__main__':main()
