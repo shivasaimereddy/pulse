@@ -1,5 +1,6 @@
 """Build the self-contained product website and retained, versioned EXE downloads."""
 import hashlib
+import argparse
 from html import escape
 import json
 import os
@@ -16,6 +17,9 @@ from website_releases import prepare
 
 
 def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--replace-current',action='store_true',help='Explicitly replace the current build while backing up its previous artifact.')
+    arguments=parser.parse_args()
     website=ROOT/'website'
     source,output=website/'src',website/'dist'
     config=json.loads((website/'site.config.json').read_text(encoding='utf-8'))
@@ -24,7 +28,7 @@ def main():
     if parsed.scheme!='https' or not parsed.netloc or parsed.query or parsed.fragment:
         raise SystemExit('Set siteUrl to the public HTTPS page URL without query parameters or fragments.')
     try:
-        artifacts,releases=prepare(ROOT,__version__,os.environ.get('PULSE_RELEASE_DIR'))
+        artifacts,releases=prepare(ROOT,__version__,os.environ.get('PULSE_RELEASE_DIR'),replace_current=arguments.replace_current)
     except (ValueError,OSError,KeyError) as error:
         raise SystemExit(str(error))
     latest=releases[0]
@@ -49,7 +53,7 @@ def main():
     downloads=output/'downloads'
     # Compatibility aliases serve the latest EXE; versioned URLs remain immutable.
     shutil.copy2(output/latest['download'],downloads/'Pulse.exe')
-    shutil.copy2(downloads/latest['version']/'THIRD-PARTY-NOTICES.txt',downloads/'THIRD-PARTY-NOTICES.txt')
+    shutil.copy2((output/latest['download']).parent/'THIRD-PARTY-NOTICES.txt',downloads/'THIRD-PARTY-NOTICES.txt')
     (downloads/'SHA256SUMS.txt').write_text(latest['sha256']+'  Pulse.exe\n',encoding='utf-8')
     options=''.join('<option value="'+r['version']+'">Version '+r['version']+(' · Latest' if i==0 else ' · Previous release')+'</option>' for i,r in enumerate(releases))
     release_rows=''.join('<article class="release-entry"><div><h4>Pulse '+r['version']+'</h4><span>'+('Latest release' if i==0 else 'Previous release')+' · Windows x64 · '+f"{r['bytes']/1024/1024:.1f} MB"+'</span></div><ul>'+''.join('<li>'+escape(note)+'</li>' for note in r['notes'])+'</ul><a href="'+r['download']+'" download="'+r['filename']+'">Download EXE ↗</a></article>' for i,r in enumerate(releases))
@@ -60,7 +64,7 @@ def main():
         {'@type':'WebSite','name':'Pulse','url':site_url},
         {'@type':'SoftwareApplication','name':'Pulse','url':site_url,'description':'A local Windows PC dashboard for live performance, storage exploration and recorded history.','applicationCategory':'UtilitiesApplication','operatingSystem':'Windows x64','softwareVersion':__version__,'downloadUrl':urljoin(site_url,latest['download']),'fileSize':str(latest['bytes'])+' bytes','image':urljoin(site_url,'assets/'+social_name)}]}
     html=html.replace('{{STRUCTURED_DATA}}',json.dumps(structured).replace('<','\\u003c'))
-    html=html.replace('{{RELEASE_OPTIONS}}',options).replace('{{RELEASE_ROWS}}',release_rows).replace('{{RELEASE_CATALOG}}',json.dumps(catalog,ensure_ascii=True).replace('<','\\u003c'))
+    html=html.replace('downloads/{{VERSION}}/SHA256SUMS.txt',str(Path(latest['download']).parent).replace('\\','/')+'/SHA256SUMS.txt').replace('{{RELEASE_OPTIONS}}',options).replace('{{RELEASE_ROWS}}',release_rows).replace('{{RELEASE_CATALOG}}',json.dumps(catalog,ensure_ascii=True).replace('<','\\u003c'))
     for key,value in replacements.items():html=html.replace('{{'+key+'}}',escape(value,quote=True))
     # A fresh HTML release must never run an older cached script or stylesheet.
     for asset in output.iterdir():
@@ -78,6 +82,7 @@ def main():
     with zipfile.ZipFile(bundle,'w',zipfile.ZIP_DEFLATED) as package:
         for file in sorted(output.rglob('*')):
             if file.is_file():package.write(file,file.relative_to(output))
+    (ROOT/'dist/Pulse-website.zip.sha256').write_text(hashlib.sha256(bundle.read_bytes()).hexdigest()+'  Pulse-website.zip\n',encoding='utf-8')
     print('Website ready:',output)
     print('Retained releases:',', '.join(r['version'] for r in releases))
     print('Deployment archive (not a visitor download):',bundle)

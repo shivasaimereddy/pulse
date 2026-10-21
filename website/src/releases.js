@@ -12,7 +12,7 @@
   dialog.dataset.exeHash=release.sha256;dialog.dataset.filename=release.filename;
   document.querySelector('#checksum-release-label').textContent=`Pulse ${release.version} · SHA-256`;
   document.querySelector('#checksum-filename').textContent=release.filename;
-  document.querySelector('#checksum-file-link').href=`downloads/${release.version}/SHA256SUMS.txt`;
+  document.querySelector('#checksum-file-link').href=release.download.slice(0,release.download.lastIndexOf('/')+1)+'SHA256SUMS.txt';
   document.dispatchEvent(new Event('pulse-release-change'));
  }
  picker.addEventListener('change',update);update();

@@ -13,7 +13,7 @@ def checksum(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def prepare(root, version, artifact_root=None):
+def prepare(root, version, artifact_root=None, replace_current=False):
     if not VERSION.fullmatch(version):
         raise ValueError('Use a stable major.minor.patch version for the public release.')
     artifacts = Path(artifact_root) if artifact_root else root / 'release-artifacts'
@@ -27,20 +27,37 @@ def prepare(root, version, artifact_root=None):
         raise ValueError('Desktop executable does not match the current version receipt. Rebuild the desktop release.')
     current = artifacts / version
     binary = current / 'Pulse.exe'
-    if current.exists():
-        if not binary.is_file() or checksum(binary) != digest:
-            raise ValueError('Release '+version+' is already archived with different contents. Bump the app version; published versions must not be overwritten.')
-    else:
+    backup=None
+    if current.exists() and (not binary.is_file() or checksum(binary)!=digest):
+        if not replace_current:
+            raise ValueError('Release '+version+' is already archived with different contents. Bump the app version; published versions must not be overwritten without explicit replacement.')
+        metadata=json.loads((current/'release.json').read_text(encoding='utf-8'))
+        if not binary.is_file() or checksum(binary)!=metadata.get('sha256'):
+            raise ValueError('Cannot replace an archive that failed its integrity check.')
+        backup=artifacts/'superseded'/version/metadata['sha256']
+        backup.parent.mkdir(parents=True,exist_ok=True)
+        if backup.exists():
+            raise ValueError('A backup of this build already exists. Check the retained artifacts before replacing it.')
+        # Both paths must remain in the explicitly selected artifact archive.
+        if not backup.resolve().is_relative_to(artifacts.resolve()) or not current.resolve().is_relative_to(artifacts.resolve()):
+            raise ValueError('Artifact replacement escaped the archive directory.')
+        current.rename(backup)
+    if not current.exists():
         artifacts.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix='.release-', dir=artifacts) as staging:
-            ready=Path(staging)/version
-            ready.mkdir()
-            shutil.copy2(executable, ready/'Pulse.exe')
-            shutil.copytree(root/'dist/licenses', ready/'licenses')
-            if checksum(ready/'Pulse.exe')!=digest:
-                raise ValueError('Executable changed while archiving. Try the build again.')
-            (ready/'release.json').write_text(json.dumps(dict(version=version, sha256=digest, bytes=executable.stat().st_size), indent=2), encoding='utf-8')
-            ready.rename(current)
+        try:
+            with tempfile.TemporaryDirectory(prefix='.release-', dir=artifacts) as staging:
+                ready=Path(staging)/version
+                ready.mkdir()
+                shutil.copy2(executable, ready/'Pulse.exe')
+                shutil.copytree(root/'dist/licenses', ready/'licenses')
+                if checksum(ready/'Pulse.exe')!=digest:
+                    raise ValueError('Executable changed while archiving. Try the build again.')
+                (ready/'release.json').write_text(json.dumps(dict(version=version, sha256=digest, bytes=executable.stat().st_size), indent=2), encoding='utf-8')
+                ready.rename(current)
+        except Exception:
+            if backup is not None and not current.exists():
+                backup.rename(current)
+            raise
     configured = json.loads((root/'website/releases.json').read_text(encoding='utf-8'))
     releases=[]
     seen=set()
@@ -56,7 +73,7 @@ def prepare(root, version, artifact_root=None):
             raise ValueError('Archived release failed integrity checks: '+number)
         filename='Pulse-'+number+'-Windows-x64.exe'
         releases.append(dict(version=number, bytes=metadata['bytes'], sha256=metadata['sha256'],
-            download='downloads/'+number+'/'+filename, filename=filename,
+            download='downloads/'+number+'/'+metadata['sha256'][:12]+'/'+filename, filename=filename, build=metadata['sha256'][:12],
             notes=entry.get('notes',[]), platform='Windows x64'))
     releases.sort(key=lambda r:tuple(map(int,r['version'].split('.'))),reverse=True)
     if not releases or releases[0]['version']!=version:

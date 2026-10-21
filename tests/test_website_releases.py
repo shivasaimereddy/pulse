@@ -31,6 +31,15 @@ class ReleaseStoreTests(unittest.TestCase):
         self.build('1.0.0');self.catalog(['1.0.0']);prepare(self.root,'1.0.0')
         self.build('1.0.0',b'MZdifferent')
         with self.assertRaisesRegex(ValueError,'must not be overwritten'):prepare(self.root,'1.0.0')
+    def test_explicit_same_version_replacement_keeps_old_build_and_new_url(self):
+        self.build('1.0.0');self.catalog(['1.0.0']);artifacts,old=prepare(self.root,'1.0.0')
+        self.build('1.0.0',b'MZreplacement')
+        _,new=prepare(self.root,'1.0.0',replace_current=True)
+        self.assertEqual(new[0]['version'],'1.0.0')
+        self.assertNotEqual(old[0]['download'],new[0]['download'])
+        self.assertEqual((artifacts/'superseded'/'1.0.0'/old[0]['sha256']/'Pulse.exe').read_bytes(),b'MZsample-one')
+        self.assertEqual((artifacts/'1.0.0/Pulse.exe').read_bytes(),b'MZreplacement')
+
     def test_checks_receipt_and_archive_tampering(self):
         self.build('1.0.0');self.catalog(['1.0.0']);artifacts,_=prepare(self.root,'1.0.0')
         (artifacts/'1.0.0/Pulse.exe').write_bytes(b'MZtampered')

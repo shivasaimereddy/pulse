@@ -36,9 +36,9 @@ For each release:
 1. Bump `pulse.__version__` to a new major.minor.patch version, then build the Windows release. Its build receipt binds the version to the EXE hash.
 2. Add that version and its release notes to `website/releases.json`; retain older entries you still offer.
 3. Run the website builder. It archives the current EXE and notices under `release-artifacts/<version>/`, verifies all listed historical artifacts, then generates the selector, release history and `releases.json` manifest.
-4. Upload the new website bundle. It contains every listed version at a permanent `downloads/<version>/Pulse-<version>-Windows-x64.exe` URL.
+4. Upload the new website bundle. It contains every listed version at a permanent `downloads/<version>/<build-hash>/Pulse-<version>-Windows-x64.exe` URL.
 
-**Back up `release-artifacts/` separately.** Binaries are intentionally ignored by Git. Rebuilding on another machine requires copying this retained archive first (or setting `PULSE_RELEASE_DIR` to its location). A build fails if an older listed artifact is missing or changed; it never silently removes earlier downloads. Published versions are immutable: a different EXE requires a new version number. Do not rebuild an already archived version with changed code.
+**Back up `release-artifacts/` separately.** Binaries are intentionally ignored by Git. Rebuilding on another machine requires copying this retained archive first (or setting `PULSE_RELEASE_DIR` to its location). A build fails if an older listed artifact is missing or changed; it never silently removes earlier downloads. Normal builds reject a changed EXE for an archived version. An explicitly authorized same-version rebuild can use `python scripts/build_website.py --replace-current`: the previous build is retained under `release-artifacts/superseded/`, and the new download gets a different build-hash URL. Prefer a new app version for future functional releases.
 
 For Nginx, versioned download paths can use long immutable cache headers. Keep `index.html`, `release.json`, `releases.json`, and the unversioned `downloads/Pulse.exe` alias uncached or revalidated so updates appear promptly. The selected-version EXE name, size and verification hash update together. Only real archived versions are listed; there are no placeholder future releases.
 
@@ -71,3 +71,5 @@ The hero has a rounded display frame and base without perspective transforms on 
 Run `python -m unittest tests.test_website_releases` for retained versions, mutation rejection and integrity checks; `node tests/test_website_release_ui.js` covers version-selection synchronization.
 
 The hero includes three verified principles and a static vector poster until the interactive tour mounts. With scripting unavailable, its noscript explanation, product content, release notes and direct EXE links remain usable. A single release is displayed as a plain version label; the builder reveals the selector automatically when two or more releases are listed. Product copy uses PC consistently. No analytics are added.
+
+See [the website v2 deployment runbook](../docs/releases/website-v2.0.0.md) for GitHub asset upload, Ubuntu staging, checksum checks, web-root switching and rollback. The current app stays v1.0.0.

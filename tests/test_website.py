@@ -78,7 +78,7 @@ class WebsiteTests(unittest.TestCase):
         self.assertEqual(catalog['latest'],__version__)
         for release in catalog['releases']:
             self.assertEqual(hashlib.sha256((SITE/release['download']).read_bytes()).hexdigest(),release['sha256'])
-            self.assertIn(release['sha256'],(SITE/'downloads'/release['version']/'SHA256SUMS.txt').read_text())
+            self.assertIn(release['sha256'],((SITE/release['download']).parent/'SHA256SUMS.txt').read_text())
         self.assertFalse(any((SITE/'downloads').rglob('*.zip')))
 
     def test_previews_are_valid_private_data_free_vectors(self):
